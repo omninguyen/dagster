@@ -201,12 +201,18 @@ def test_asset_check_additional_ins() -> None:
         def my_check4():
             return dg.AssetCheckResult(passed=True)
 
-    # Error bc asset1 is in both additional_ins and the function signature
-    with pytest.raises(dg.DagsterInvalidDefinitionError):
+    @dg.asset_check(
+        asset=asset1,
+        additional_ins={
+            "custom_input_name": dg.AssetIn(
+                key=asset1.key, input_manager_key="my_other_io_manager", metadata={"columns": ["a"]}
+            )
+        },
+    )
+    def my_check5(custom_input_name: int) -> dg.AssetCheckResult:
+        return dg.AssetCheckResult(passed=custom_input_name == 5)
 
-        @dg.asset_check(asset=asset1, additional_ins={"asset1": dg.AssetIn(key=asset1.key)})
-        def my_check5(asset1: int) -> dg.AssetCheckResult:
-            return dg.AssetCheckResult(passed=asset1 == 5)
+    assert my_check5.keys_by_input_name == {"custom_input_name": dg.AssetKey("asset1")}
 
     # Error bc asset2 is in the function signature but not additional_ins
     with pytest.raises(dg.DagsterInvalidDefinitionError):
@@ -216,11 +222,11 @@ def test_asset_check_additional_ins() -> None:
             return dg.AssetCheckResult(passed=asset1 == 5)
 
     result = execute_assets_and_checks(
-        assets=[asset1, asset2], asset_checks=[my_check, my_check2, my_check3]
+        assets=[asset1, asset2], asset_checks=[my_check, my_check2, my_check3, my_check5]
     )
 
     assert result.success
-    assert len(result.get_asset_check_evaluations()) == 3
+    assert len(result.get_asset_check_evaluations()) == 4
     assert all(check.passed for check in result.get_asset_check_evaluations())
 
 
