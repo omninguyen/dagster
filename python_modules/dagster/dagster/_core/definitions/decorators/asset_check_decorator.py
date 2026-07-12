@@ -57,11 +57,6 @@ def _build_asset_check_named_ins(
             f"When defining check '{name}', asset '{asset_key.to_user_string()}' was passed to `asset` and `additional_deps`."
             " It can only be passed to one of these parameters."
         )
-    if asset_key in [asset_in.key for asset_in in additional_ins.values()]:
-        raise DagsterInvalidDefinitionError(
-            f"When defining check '{name}', asset '{asset_key.to_user_string()}' was passed to `asset` and `additional_ins`."
-            " It can only be passed to one of these parameters."
-        )
 
     fn_param_names = {param.name for param in fn_params}
     for in_name in additional_ins.keys():
@@ -70,12 +65,25 @@ def _build_asset_check_named_ins(
                 f"'{in_name}' is specified in 'additional_ins' but isn't a parameter."
             )
 
-    # if all the fn_params are in additional_ins, then we add the primary asset as a dep
+    primary_asset_input_names = [
+        input_name
+        for input_name, asset_in in additional_ins.items()
+        if asset_in.key == asset_key
+    ]
+    if len(primary_asset_input_names) > 1:
+        raise DagsterInvalidDefinitionError(
+            f"When defining check '{name}', multiple parameters in `additional_ins` map to the target asset '"
+            f"{asset_key.to_user_string()}': {primary_asset_input_names}."
+        )
+
+    # if all the fn_params are in additional_ins, then we add the primary asset as a dep unless provided via additional_ins
     if len(fn_params) == len(additional_ins):
-        all_deps = {**additional_deps, **{asset_key: AssetDep(asset_key)}}
+        all_deps = additional_deps
+        if not primary_asset_input_names:
+            all_deps = {**all_deps, **{asset_key: AssetDep(asset_key)}}
         all_ins = additional_ins
-    # otherwise there should be one extra fn_param, which is the primary asset. Add that as an input
-    elif len(fn_params) == len(additional_ins) + 1:
+    # otherwise there should be one extra fn_param, which is the primary asset. Add that as an input unless provided via additional_ins
+    elif len(fn_params) == len(additional_ins) + 1 and not primary_asset_input_names:
         primary_asset_param_name = next(
             param.name for param in fn_params if param.name not in additional_ins.keys()
         )
